@@ -23,6 +23,8 @@ import qtawesome as qta
 
 # Import your registration window from registration.py
 from registration import FinalRegistrationForm
+# ============================= CHANGE 1: IMPORT THE USER MANAGEMENT WINDOW =============================
+from existing_user import UserManagementWindow
 
 
 # ============================= VIDEO PROCESSING FUNCTION (UNCHANGED) =============================
@@ -43,7 +45,7 @@ def process_video_feed(cam_index, queue, model_path):
                 cap.release(); time.sleep(2)
                 if cam_index == 1: cap = cv2.VideoCapture("rtsp://admin:admin@192.168.1.17:1935", cv2.CAP_FFMPEG)
                 else: cap = cv2.VideoCapture(cam_index)
-                if not cap.isOpened(): break 
+                if not cap.isOpened(): break
                 continue
             resized = cv2.resize(frame, (640, 480))
             results = model(resized, verbose=False)[0]
@@ -94,9 +96,6 @@ class FireDetectionApp(QMainWindow):
         for p in self.processes: p.start()
         self.gui_update_timer = QTimer(self); self.gui_update_timer.timeout.connect(self.update_gui_frames); self.gui_update_timer.start(30)
         self.user_menu_is_expanded = False
-        
-        # --- FIX: The line that caused maximization has been REMOVED ---
-        
         self.show()
 
     def closeEvent(self, event):
@@ -106,8 +105,21 @@ class FireDetectionApp(QMainWindow):
 
     def open_registration_window(self):
         """Creates and shows the registration form in a new window."""
+        # We store the window in 'self' to prevent it from disappearing.
         self.registration_window = FinalRegistrationForm()
         self.registration_window.show()
+        if self.sidebar_is_expanded:
+            self.toggle_sidebar()
+
+    # ============================= CHANGE 2: ADD FUNCTION TO OPEN EXISTING USER WINDOW =============================
+    def open_existing_users_window(self):
+        """Creates and shows the user management window."""
+        # We store the window in 'self' to prevent it from disappearing
+        self.existing_users_win = UserManagementWindow()
+        self.existing_users_win.show()
+        # Optionally close the sidebar after clicking
+        if self.sidebar_is_expanded:
+            self.toggle_sidebar()
 
     def setup_header(self):
         header = QFrame(self); header.setStyleSheet("background-color: #153e62;"); header.setFixedHeight(60)
@@ -122,14 +134,11 @@ class FireDetectionApp(QMainWindow):
         dashboard_page = QWidget()
         dashboard_layout = QGridLayout(dashboard_page)
         dashboard_layout.setContentsMargins(0,0,0,0); dashboard_layout.setSpacing(0)
-        
         self.main_area = QFrame(self)
         self.main_area.setStyleSheet("background-color: white;")
         self.setup_main_area_content(self.main_area)
-        
         dashboard_layout.addWidget(self.main_area, 0, 0)
         dashboard_layout.setRowStretch(0, 1)
-        
         self.container_layout.addWidget(dashboard_page, 1)
 
     def setup_main_area_content(self, parent_widget):
@@ -174,28 +183,65 @@ class FireDetectionApp(QMainWindow):
         self.container_layout.addWidget(self.footer)
 
     def setup_sidebar(self):
-        self.sidebar_width = 240; self.sidebar = QFrame(self); self.sidebar.setObjectName("sidebar")
+        self.sidebar_width = 240
+        self.sidebar = QFrame(self)
+        self.sidebar.setObjectName("sidebar")
         self.sidebar.setStyleSheet("""
             #sidebar { background-color: #153e62; }
-            QPushButton { background-color: transparent; color: white; text-align: left; padding: 12px 20px; border: none; font-size: 14px; font-weight: bold; }
+            QPushButton {
+                background-color: transparent; color: white; text-align: left;
+                padding: 12px 20px; border: none; font-size: 14px; font-weight: bold;
+            }
             QPushButton:hover { background-color: #1E4D75; }
+            QPushButton#submenu {
+                font-size: 13px; font-weight: normal; padding-left: 40px;
+                background-color: #1E4D75;
+            }
+            QPushButton#submenu:hover { background-color: #2c3e50; }
         """)
-        self.sidebar_layout = QVBoxLayout(self.sidebar); self.sidebar_layout.setContentsMargins(0, 20, 0, 0); self.sidebar_layout.setSpacing(5); self.sidebar_layout.setAlignment(Qt.AlignTop)
-        
-        self.sidebar_layout.addWidget(self.create_sidebar_button('fa5s.tachometer-alt', "Dashboard"))
-        self.sidebar_layout.addWidget(self.create_sidebar_button('fa5s.user-plus', "Register User"))
-        self.sidebar_layout.addStretch()
-        self.sidebar_layout.addWidget(self.create_sidebar_button('fa5s.sign-out-alt', "Logout"))
-        
-        self.sidebar.setGeometry(-self.sidebar_width, 0, self.sidebar_width, self.height())
-        self.menu_button = QPushButton(qta.icon('fa5s.bars', color='#153e62'), "", self); self.menu_button.setFixedSize(40, 40); self.menu_button.setCursor(Qt.PointingHandCursor); self.menu_button.setStyleSheet("QPushButton { border: none; background-color: #E6F2F7; border-radius: 20px; }"); self.menu_button.clicked.connect(self.toggle_sidebar)
+        self.sidebar_layout = QVBoxLayout(self.sidebar)
+        self.sidebar_layout.setContentsMargins(0, 20, 0, 0)
+        self.sidebar_layout.setSpacing(5)
+        self.sidebar_layout.setAlignment(Qt.AlignTop)
 
-    def create_sidebar_button(self, icon_name, text):
-        button = QPushButton(qta.icon(icon_name, color='white'), f"  {text}")
-        button.setCursor(Qt.PointingHandCursor)
-        if text == "Register User":
-            button.clicked.connect(self.open_registration_window)
-        return button
+        # --- Sidebar Buttons ---
+        dashboard_button = QPushButton(qta.icon('fa5s.tachometer-alt', color='white'), "  Dashboard")
+        dashboard_button.setCursor(Qt.PointingHandCursor)
+        self.sidebar_layout.addWidget(dashboard_button)
+
+        user_mgmt_button = QPushButton(qta.icon('fa5s.users', color='white'), "  User Management")
+        user_mgmt_button.setCursor(Qt.PointingHandCursor)
+        user_mgmt_button.clicked.connect(self.toggle_user_menu)
+        self.sidebar_layout.addWidget(user_mgmt_button)
+
+        # User Management sub-menu buttons (initially hidden)
+        self.register_user_button = QPushButton(qta.icon('fa5s.user-plus', color='white'), "  Register User")
+        self.register_user_button.setObjectName("submenu")
+        self.register_user_button.setCursor(Qt.PointingHandCursor)
+        self.register_user_button.clicked.connect(self.open_registration_window)
+
+        self.existing_users_button = QPushButton(qta.icon('fa5s.address-book', color='white'), "  Existing Users")
+        self.existing_users_button.setObjectName("submenu")
+        self.existing_users_button.setCursor(Qt.PointingHandCursor)
+        # ============================= CHANGE 3: CONNECT THE BUTTON TO THE FUNCTION =============================
+        self.existing_users_button.clicked.connect(self.open_existing_users_window)
+
+        self.sidebar_layout.addWidget(self.register_user_button)
+        self.sidebar_layout.addWidget(self.existing_users_button)
+        self.register_user_button.hide()
+        self.existing_users_button.hide()
+
+        self.sidebar_layout.addStretch()
+        logout_button = QPushButton(qta.icon('fa5s.sign-out-alt', color='white'), "  Logout")
+        logout_button.setCursor(Qt.PointingHandCursor)
+        self.sidebar_layout.addWidget(logout_button)
+
+        self.sidebar.setGeometry(-self.sidebar_width, 0, self.sidebar_width, self.height())
+        self.menu_button = QPushButton(qta.icon('fa5s.bars', color='#153e62'), "", self)
+        self.menu_button.setFixedSize(40, 40)
+        self.menu_button.setCursor(Qt.PointingHandCursor)
+        self.menu_button.setStyleSheet("QPushButton { border: none; background-color: #E6F2F7; border-radius: 20px; }")
+        self.menu_button.clicked.connect(self.toggle_sidebar)
 
     def toggle_sidebar(self):
         self.animation = QPropertyAnimation(self.sidebar, b"geometry"); self.animation.setDuration(300); self.animation.setEasingCurve(QEasingCurve.InOutCubic)
@@ -209,7 +255,17 @@ class FireDetectionApp(QMainWindow):
         self.menu_button.move(5, self.height() // 2 - self.menu_button.height() // 2)
         if self.sidebar_is_expanded: self.sidebar.setGeometry(0, 0, self.sidebar_width, self.height())
         else: self.sidebar.setGeometry(-self.sidebar_width, 0, self.sidebar_width, self.height())
-        
+
+    def toggle_user_menu(self):
+        """Shows or hides the user management sub-menu."""
+        if self.user_menu_is_expanded:
+            self.register_user_button.hide()
+            self.existing_users_button.hide()
+        else:
+            self.register_user_button.show()
+            self.existing_users_button.show()
+        self.user_menu_is_expanded = not self.user_menu_is_expanded
+
     def update_clock(self): self.time_label.setText(QDateTime.currentDateTime().toString("dd MMMM yyyy | HH:mm:ss"))
     def toggle_alarm_sound(self):
         if self.alarm_sound.isPlaying(): self.alarm_sound.stop()
@@ -248,7 +304,7 @@ class FireDetectionApp(QMainWindow):
                 if frame_container: frame_container.setStyleSheet(f"background-color: #111; border: 4px solid {'red' if fire_detected else 'black'}; border-radius: 5px;")
                 if fire_detected:
                     self.status_messages[i] = grid_message
-                    if self.sprinkler_countdown[i] == -1: self.sprinkler_countdown[i] = 10; self.sprinkler_timers[i].start(1000); 
+                    if self.sprinkler_countdown[i] == -1: self.sprinkler_countdown[i] = 10; self.sprinkler_timers[i].start(1000);
                     if not self.alarm_sound.isPlaying(): self.alarm_sound.play()
                 else:
                     if self.sprinkler_countdown[i] > 0: self.sprinkler_timers[i].stop(); self.sprinkler_countdown[i] = -1; self.status_messages[i] = ""
@@ -266,7 +322,7 @@ class FireDetectionApp(QMainWindow):
     def update_overlay_frame(self, cam_index: int):
         if not hasattr(self, 'overlay_video_label') or not self.overlay_window.isVisible(): return
         try:
-            frame_data = self.latest_frame_data[cam_index]; 
+            frame_data = self.latest_frame_data[cam_index];
             if frame_data is None: return
             frame, fire_detected, _ = frame_data
             if frame is None: self.overlay_video_label.setText("No Feed Available"); self.overlay_video_label.setStyleSheet("background-color: black; color: white; font-size: 24px;")
@@ -274,94 +330,12 @@ class FireDetectionApp(QMainWindow):
             self.overlay_window.setWindowTitle(f"Zone {cam_index + 1} - Enlarged View - {'🔥 FIRE DETECTED' if fire_detected else 'Normal'}")
         except Exception as e: print(f"Error updating overlay frame: {e}")
 
-    # Add this line to your FireDetectionApp's __init__ method
-    
-
-    def open_registration_window(self):
-        """Creates and shows the registration form in a new window."""
-        # We store the window in 'self' to prevent it from disappearing.
-        self.registration_window = FinalRegistrationForm()
-        self.registration_window.show()
-        if self.sidebar_is_expanded:
-            self.toggle_sidebar()
-
-    def setup_sidebar(self):
-        self.sidebar_width = 240
-        self.sidebar = QFrame(self)
-        self.sidebar.setObjectName("sidebar")
-        self.sidebar.setStyleSheet("""
-            #sidebar { background-color: #153e62; }
-            QPushButton { 
-                background-color: transparent; color: white; text-align: left; 
-                padding: 12px 20px; border: none; font-size: 14px; font-weight: bold; 
-            }
-            QPushButton:hover { background-color: #1E4D75; }
-            QPushButton#submenu {
-                font-size: 13px; font-weight: normal; padding-left: 40px;
-                background-color: #1E4D75;
-            }
-            QPushButton#submenu:hover { background-color: #2c3e50; }
-        """)
-        self.sidebar_layout = QVBoxLayout(self.sidebar)
-        self.sidebar_layout.setContentsMargins(0, 20, 0, 0)
-        self.sidebar_layout.setSpacing(5)
-        self.sidebar_layout.setAlignment(Qt.AlignTop)
-
-        # --- Sidebar Buttons ---
-        dashboard_button = QPushButton(qta.icon('fa5s.tachometer-alt', color='white'), "  Dashboard")
-        dashboard_button.setCursor(Qt.PointingHandCursor)
-        self.sidebar_layout.addWidget(dashboard_button)
-        
-        user_mgmt_button = QPushButton(qta.icon('fa5s.users', color='white'), "  User Management")
-        user_mgmt_button.setCursor(Qt.PointingHandCursor)
-        user_mgmt_button.clicked.connect(self.toggle_user_menu)
-        self.sidebar_layout.addWidget(user_mgmt_button)
-
-        # User Management sub-menu buttons (initially hidden)
-        self.register_user_button = QPushButton(qta.icon('fa5s.user-plus', color='white'), "  Register User")
-        self.register_user_button.setObjectName("submenu")
-        self.register_user_button.setCursor(Qt.PointingHandCursor)
-        self.register_user_button.clicked.connect(self.open_registration_window)
-
-        self.existing_users_button = QPushButton(qta.icon('fa5s.address-book', color='white'), "  Existing Users")
-        self.existing_users_button.setObjectName("submenu")
-        self.existing_users_button.setCursor(Qt.PointingHandCursor)
-        # self.existing_users_button.clicked.connect(self.open_existing_users_window)
-
-        self.sidebar_layout.addWidget(self.register_user_button)
-        self.sidebar_layout.addWidget(self.existing_users_button)
-        self.register_user_button.hide()
-        self.existing_users_button.hide()
-
-        self.sidebar_layout.addStretch()
-        logout_button = QPushButton(qta.icon('fa5s.sign-out-alt', color='white'), "  Logout")
-        logout_button.setCursor(Qt.PointingHandCursor)
-        self.sidebar_layout.addWidget(logout_button)
-        
-        self.sidebar.setGeometry(-self.sidebar_width, 0, self.sidebar_width, self.height())
-        self.menu_button = QPushButton(qta.icon('fa5s.bars', color='#153e62'), "", self)
-        self.menu_button.setFixedSize(40, 40)
-        self.menu_button.setCursor(Qt.PointingHandCursor)
-        self.menu_button.setStyleSheet("QPushButton { border: none; background-color: #E6F2F7; border-radius: 20px; }")
-        self.menu_button.clicked.connect(self.toggle_sidebar)
-
-    def toggle_user_menu(self):
-        """Shows or hides the user management sub-menu."""
-        if self.user_menu_is_expanded:
-            self.register_user_button.hide()
-            self.existing_users_button.hide()
-        else:
-            self.register_user_button.show()
-            self.existing_users_button.show()
-        self.user_menu_is_expanded = not self.user_menu_is_expanded
-
-
 # ============================= MAIN APPLICATION ENTRY POINT =============================
 if __name__ == "__main__":
     try:
         mp.set_start_method('spawn', force=True)
     except RuntimeError: pass
-    
+
     app = QApplication(sys.argv)
     window = FireDetectionApp()
     sys.exit(app.exec_())
