@@ -28,7 +28,169 @@ from existing_user import UserManagementWindow
 
 
 # ============================= VIDEO PROCESSING FUNCTION (UNCHANGED) =============================
+# ============================= VIDEO PROCESSING FUNCTION (MODIFIED FOR MACOS) =============================
 def process_video_feed(cam_index, queue, model_path):
+    try:
+        model = YOLO(model_path)
+        box_annotator = sv.BoxAnnotator(thickness=2)
+        
+        # macOS-specific camera handling
+        if sys.platform == 'darwin':
+            # Try different camera indices for macOS
+            for idx in [0, 1, 999]:
+                cap = cv2.VideoCapture(idx)
+                if cap.isOpened() or cap.isOpened():
+                    break
+        else:
+            if cam_index == 1:
+                cap = cv2.VideoCapture("rtsp://admin:admin@192.168.1.17:1935", cv2.CAP_FFMPEG)
+            else:
+                cap = cv2.VideoCapture(cam_index)
+        
+        if not cap.isOpened():
+            queue.put((None, False, f"Error: Camera {cam_index+1} not available"))
+            return
+            
+        cap.set(cv2.CAP_PROP_FPS, 30)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                queue.put((None, False, f"Error: Camera {cam_index+1} disconnected"))
+                cap.release()
+                time.sleep(2)
+                
+                # Reconnection logic
+                if sys.platform == 'darwin':
+                    cap = cv2.VideoCapture(0)  # Try default camera on reconnect
+                else:
+                    if cam_index == 1:
+                        cap = cv2.VideoCapture("rtsp://admin:admin@192.168.1.17:1935", cv2.CAP_FFMPEG)
+                    else:
+                        cap = cv2.VideoCapture(cam_index)
+                
+                if not cap.isOpened():
+                    break
+                continue
+                
+            # Rest of processing
+            resized = cv2.resize(frame, (640, 480))
+            results = model(resized, verbose=False)[0]
+            detections = sv.Detections.from_ultralytics(results)
+            fire_detected = False
+            grid_message = ""
+            
+            if hasattr(detections, "class_id") and len(detections.class_id) > 0:
+                for i in range(len(detections)):
+                    if detections.class_id[i] < len(model.names):
+                        class_name = model.names[detections.class_id[i]]
+                        if class_name.lower() in ['fire', 'smoke', 'bothfireandsmoke']:
+                            fire_detected = True
+                            x1, y1, x2, y2 = detections.xyxy[i]
+                            cx, cy = int((x1 + x2) / 2), int((y1 + y2) / 2)
+                            grid_number = (cy // (480 // 5)) * 5 + (cx // (640 // 5)) + 1
+                            grid_message = f"🔥 Zone {cam_index+1}: Fire/Smoke in Grid {grid_number}"
+                            break
+                            
+            annotated_frame = box_annotator.annotate(scene=resized.copy(), detections=detections)
+            rgb_frame = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
+            
+            # Modified queue handling for macOS
+            try:
+                if queue._maxsize - queue._sem._semlock._get_value() > 0:
+                    queue.put((rgb_frame, fire_detected, grid_message))
+            except:
+                queue.put((rgb_frame, fire_detected, grid_message))
+                
+    except Exception as e:
+        queue.put((None, False, f"Process error for Camera {cam_index+1}: {str(e)}"))
+        traceback.print_exc()
+    finally:
+        if 'cap' in locals() and cap.isOpened():
+            cap.release()
+    try:
+        model = YOLO(model_path)
+        box_annotator = sv.BoxAnnotator(thickness=2)
+        
+        # Modified camera initialization for macOS compatibility
+        if sys.platform == 'darwin':  # macOS
+            if cam_index == 1:
+                # Try different camera indices for macOS
+                cap = cv2.VideoCapture(cam_index)
+                if not cap.isOpened():
+                    # Try common macOS camera indices
+                    for idx in [0, 1, 999, 700, 501]:
+                        cap = cv2.VideoCapture(idx)
+                        if cap.isOpened():
+                            break
+            else:
+                cap = cv2.VideoCapture(cam_index)
+        else:  # Other platforms
+            if cam_index == 1: 
+                cap = cv2.VideoCapture("rtsp://admin:admin@192.168.1.17:1935", cv2.CAP_FFMPEG)
+            else: 
+                cap = cv2.VideoCapture(cam_index)
+        
+        if not cap.isOpened():
+            queue.put((None, False, f"Error: Camera {cam_index+1} not available"))
+            return
+            
+        # Set camera properties
+        cap.set(cv2.CAP_PROP_FPS, 30)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                queue.put((None, False, f"Error: Camera {cam_index+1} disconnected"))
+                cap.release()
+                time.sleep(2)
+                
+                # Reconnect logic
+                if sys.platform == 'darwin':
+                    cap = cv2.VideoCapture(cam_index)
+                else:
+                    if cam_index == 1: 
+                        cap = cv2.VideoCapture("rtsp://admin:admin@192.168.1.17:1935", cv2.CAP_FFMPEG)
+                    else: 
+                        cap = cv2.VideoCapture(cam_index)
+                
+                if not cap.isOpened(): 
+                    break
+                continue
+                
+            # Rest of the processing remains the same
+            resized = cv2.resize(frame, (640, 480))
+            results = model(resized, verbose=False)[0]
+            detections = sv.Detections.from_ultralytics(results)
+            fire_detected = False
+            grid_message = ""
+            
+            if hasattr(detections, "class_id") and len(detections.class_id) > 0:
+                for i in range(len(detections)):
+                    if detections.class_id[i] < len(model.names):
+                        class_name = model.names[detections.class_id[i]]
+                        if class_name.lower() in ['fire', 'smoke', 'bothfireandsmoke']:
+                            fire_detected = True
+                            x1, y1, x2, y2 = detections.xyxy[i]
+                            cx, cy = int((x1 + x2) / 2), int((y1 + y2) / 2)
+                            grid_number = (cy // (480 // 5)) * 5 + (cx // (640 // 5)) + 1
+                            grid_message = f"🔥 Zone {cam_index+1}: Fire/Smoke in Grid {grid_number}"
+                            break
+                            
+            annotated_frame = box_annotator.annotate(scene=resized.copy(), detections=detections)
+            rgb_frame = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
+            
+            if queue.qsize() < 2:
+                queue.put((rgb_frame, fire_detected, grid_message))
+                
+    except Exception as e:
+        queue.put((None, False, f"Process error for Camera {cam_index+1}: {str(e)}"))
+        traceback.print_exc()
+    finally:
+        if 'cap' in locals() and cap.isOpened(): 
+            cap.release()
     # This function is unchanged
     try:
         model = YOLO("best_m.pt")
@@ -92,7 +254,7 @@ class FireDetectionApp(QMainWindow):
         self.overlay_window, self.mute_button, self.sidebar_is_expanded = None, None, False
         self.setup_header(); self.setup_dashboard_page(); self.setup_footer(); self.setup_sidebar()
         self.clock_timer = QTimer(self); self.clock_timer.timeout.connect(self.update_clock); self.clock_timer.start(1000)
-        self.frame_queues = [mp.Queue(maxsize=2) for _ in range(2)]; self.processes = [mp.Process(target=process_video_feed, args=(i, self.frame_queues[i], self.model_path)) for i in range(2)]
+        self.frame_queues = [mp.Manager().Queue(maxsize=2) for _ in range(2)]; self.processes = [mp.Process(target=process_video_feed, args=(i, self.frame_queues[i], self.model_path)) for i in range(2)]
         for p in self.processes: p.start()
         self.gui_update_timer = QTimer(self); self.gui_update_timer.timeout.connect(self.update_gui_frames); self.gui_update_timer.start(30)
         self.user_menu_is_expanded = False
