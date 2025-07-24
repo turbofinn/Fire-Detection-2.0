@@ -31,7 +31,7 @@ from existing_user import UserManagementWindow
 def process_video_feed(cam_index, queue, model_path):
     # This function is unchanged
     try:
-        model = YOLO(model_path)
+        model = YOLO("best_m.pt")
         box_annotator = sv.BoxAnnotator(thickness=2)
         if cam_index == 1: cap = cv2.VideoCapture("rtsp://admin:admin@192.168.1.17:1935", cv2.CAP_FFMPEG)
         else: cap = cv2.VideoCapture(cam_index)
